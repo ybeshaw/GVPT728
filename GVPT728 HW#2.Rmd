@@ -1,0 +1,24 @@
+---
+title: "Homework Two"
+author: "Yael Beshaw"
+date: "2025-01-03"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Using the data set you created in HW 1: create a regression model to 
+explain/predict the Democratic vote share in 2020.
+```{r}
+HW1_data <- read_csv("~/Downloads/HW1_data.csv")
+```
+
+Provide descriptive statistics, regression results and diagnostics, and make a
+case for why your model is a good one.
+```{r}
+
+```
+
+
