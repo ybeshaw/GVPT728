@@ -2,7 +2,9 @@
 title: "Homework Two"
 author: "Yael Beshaw"
 date: "2025-01-03"
-output: html_document
+output:
+  pdf_document: default
+  html_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -12,13 +14,114 @@ knitr::opts_chunk$set(echo = TRUE)
 Using the data set you created in HW 1: create a regression model to 
 explain/predict the Democratic vote share in 2020.
 ```{r}
+library(readr)
+library(tidyverse)
+library(tidycensus)
+library(ggfortify)
+library(car)
+library(huxtable)
+library(lmtest)
+library(ggdist)
+
+#democratic vote share == Biden's Share from HW#1
 HW1_data <- read_csv("~/Downloads/HW1_data.csv")
 ```
 
-Provide descriptive statistics, regression results and diagnostics, and make a
-case for why your model is a good one.
+Adding predictors to dataset from HW#1
 ```{r}
+v20 <- load_variables(2020, "acs5", cache = TRUE)
 
+HW2_data <- get_acs(geography = "state", 
+                    variables = c(median_income ="B19013_001", #mi,
+                                  race = "B02001_001", #race
+                                  white_race = "B02001_002",
+                                  black_race = "B02001_003",
+                                  asian_race = "B02001_005",
+                                  education ="B29002_001", #educ
+                                  no_diploma = "B29002_002",
+                                  high_school = "B29002_004",
+                                  bachelors = "B29002_007",
+                                  grad = "B29002_008",
+                                  age = "B29001_001", #age
+                                  eighteen = "B29001_002",
+                                  thirty = "B29001_003",
+                                  fourty_five = "B29001_004",
+                                  sixtyfive_plus="B29001_005",
+                                  people = "B01001_001", # sex
+                                  male = "B01001_002"),
+                    year = 2020)
+```
+
+```{r}
+HW2_data  <- HW2_data|>
+  select(NAME,variable,estimate)|>
+  pivot_wider(names_from = variable, 
+              values_from = estimate)|>
+  arrange(NAME)
+```
+
+```{r}
+HW2_data <-HW1_data|>
+  left_join(HW2_data, by=join_by(state == NAME))
+```
+
+```{r}
+HW2_data.adj <- HW2_data |>
+  mutate (`Prop_Male` = male/people) |>
+  mutate (`Prop_White` = white_race/race) |>
+  mutate(`Prop_NonWhite`= (black_race + asian_race)/race) |>
+  mutate (`Prop_Grad` = (bachelors + grad)/education)|>
+  mutate (`Prop_Highschool_Lower`= (no_diploma + high_school)/education)|>
+  mutate (`GenZ_Mill` = (eighteen + thirty)/age) |>
+  mutate (`GenX` = fourty_five/age) |>
+  mutate (`Boomers_Silent` = sixtyfive_plus/age)|>
+  mutate (`Median Household Income`= `Median Household Income`/10000)|>
+  select (`Biden's Share`, `Median Household Income`, `Prop_Male`,
+          `Prop_White`, `Prop_NonWhite`, `Prop_Grad`,
+          `Prop_Highschool_Lower`, `GenZ_Mill`, `GenX`)
 ```
 
 
+Provide descriptive statistics, regression results and diagnostics, and make a case for why your model is a good one.
+
+Descriptive Statistics
+```{r}
+#this dataset contains variables that are listed as proportions of the overall population for interpretability purposes.
+summary(HW2_data.adj)
+```
+
+Regression Results
+```{r}
+model<-lm(`Biden's Share` ~ ., data= HW2_data.adj)
+summary(model)
+```
+Based on the regression results, for every one unit increase in the median household income of a state (including D.C.) in the United States. The expected mean for Biden's Share of the vote decreases by 0.002 units. This is not statistically significant as we observe the p-value to less than 0.05 and we therefore fail to reject the null hypothesis that there is is no effect of median household income. Additionally,for every one unit increase in the proportion of men within a state (including D.C.) in the United States, the expected mean for Biden's Share of the vote decreases by 4.00 units and is statistically significant. Indicating that men are not as likely to contribute to the vote share of the Democratic party. We see a similar pattern when assessing the proportion of White voting age citizens compared, in which for every one unit increase in the proportion of White voters within a state (including D.C.) in the United States, the expected mean for Biden's Share of the vote decreases by 0.596 units and is statistically significant. Interestingly enough, we also see that for Non-White voters (Black and Asian in this analysis), there is a decrease of the expected mean for Biden's Share of the vote by 0.514 units, which is statistically significant. This means that although White voters are less likely to contribute to the vote share of the Democratic party than other races, Non-white voters do not contribute as much as expected by literature and theory. Lastly, for every one unit increase in the proportion of those who graduated undergrad and graduate school, the expected mean for Biden's Share of the vote increases by 1.535 units and 
+is statistically significant. This is expected according to literature and theory regarding voting patterns of increasingly educated voters. We see that voters of lower educational attainment do not have a statisitically significant effect on the vote share of the Democratic party. We also see
+that no proportion of voting-eligible age group has a statistically significant effect either.
+
+
+Additionally, the residual standard error of 0.05269
+both the Adjusted R^2 and Multiple R^2 explain about 80% of the variance
+The F-statistic is 28.93 and is statistically significant at 3.482e-09
+
+
+Diagnostics, Test the Assumptions - Linearity, Homoscedastisticity, Normality of Residuals, Influential Data Points
+```{r}
+autoplot(model)
+```
+Based on these results, we can see that there is a slight curve in the Residuals vs Fitted and Scale-Location plots which may be cause for concern regarding violation of homoscedasticity assumption. In order to take a closer look at this utilizing the Breusch–Pagan test. Additionally, we see that the Q-Q plot flows a straight line between -1.8 to 1.8, indicating that we may need to assess the data points that could have an influential impact on the model. We see that in the Residuals vs Leverage plot that there are several points that could potentially have a great influence.
+
+```{r}
+#check homoscedasticity
+ncvTest(model)
+```
+The results support that there is no evidence of heteroscedasticity as
+the p-value is greater than 0.05. Therefore the assumption of homoscedasticity is not violated.
+
+```{r}
+#check mulitcolinearity
+vif(model)
+```
+The results indicate that there are four predictors; Median Household Income, Prop_White, Prop_NonWhite, and Prop_Grad that may indicate strong mulitcolinearity. In order to assess this, we can take a look at these specific predictors to address the issue.
+
+This model can be utilized to make predictions about the vote share of the Democratic party as we have evidence that there is no evidence of heteroscedasticity due to the non-significant test from the Breusch–Pagan test. Additionally, we see that in the Q-Q plot, there is not a significant deviation away from the straight line which supports that the normality assumption is not violated. We see that there is a chance for influential points that may be impacting our estimates. However, we are able to conduct further tests and adjust by removing these points, if necessary. Our main concern here would be multicolinearity, as evidenced by the VIF model. As a result, we may consider transformations and adding/removing predictors that ultimately may not help us make accurate predictions.
