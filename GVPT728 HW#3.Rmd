@@ -1,0 +1,77 @@
+---
+title: "GVPT728 HW#3"
+author: "Yael Beshaw"
+date: "2025-01-09"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(huxtable)
+library(tidycensus)
+library(fixest)
+library(sandwich)
+library(lmtest)
+```
+
+
+Download Replication Data (Sorensen, 2019)
+```{r}
+turnout_data<- dataverse::get_dataframe_by_name(
+  filename = 'AggregateReplicationTVData.dta',
+  .f = haven::read_dta,
+  dataset = '10.7910/DVN/QGMHHQ', 
+  server = "dataverse.harvard.edu")
+
+# filtering for 1963 ONLY 
+turnout_data<-turnout_data|>
+  filter(nationalelection==0)|>
+  filter(year == 1963)|>
+  mutate(CountyId = factor(CountyId),
+         knr = factor(knr)
+         )
+```
+
+Baseline Model
+```{r}
+model0<-lm(turnout ~ TVdummy + logpop + education + settlement + voterpct, data=turnout_data)
+```
+
+Question #1
+Estimate 3 new versions of model0 that account for correlations across levels of CountyId:
+
+A model with cluster robust standard errors
+A fixed effects model
+A random effects model
+
+```{r}
+# Cluster Robust Standard Error
+model0_robust <- coeftest(model0, 
+                          vcov = vcovCL,
+                          type='HC2',
+                          cluster = ~CountyId
+                          )
+model0_robust
+
+# Fixed Effects
+model0_fixed <-feols(turnout ~ TVdummy + logpop + education + 
+                       settlement + voterpct | CountyId, data=turnout_data)
+model0_fixed
+
+# Random Effects
+```
+
+Include your output in a formatted regression table and briefly discuss the differences between your results.
+```{r}
+huxreg(model0, model0_robust, model0_fixed )
+```
+
+Question #2
+
+Which of the models above seems like a better approach for this analysis? Briefly discuss some pros and cons for each one.
+
+
