@@ -45,12 +45,13 @@ model0<-lm(turnout ~ TVdummy + logpop + education + settlement + voterpct, data=
 summary(model0)
 ```
 
-Question #1
-Estimate 3 new versions of model0 that account for correlations across levels of CountyId:
+# Question #1
+Estimate 3 new versions of model0 that account for correlations across levels 
+of CountyId:
 
-A model with cluster robust standard errors
-A fixed effects model
-A random effects model
+- A model with cluster robust standard errors
+- A fixed effects model
+- A random effects model
 
 ```{r}
 # Cluster Robust Standard Error
@@ -59,6 +60,7 @@ model0_robust <- coeftest(model0,
                           type='HC2',
                           cluster = ~CountyId
                           )
+model0_robust
 
 # Fixed Effects
 model0_fixed <-feols(turnout ~ TVdummy + logpop + education + 
@@ -149,7 +151,7 @@ that of CountyId, meaning it is not more predictive.
 
 
 
-Question #2
+# Question #2
 
 Which of the models above seems like a better approach for this analysis? 
 Briefly discuss some pros and cons for each one.
