@@ -16,11 +16,14 @@ library(tidycensus)
 library(fixest)
 library(sandwich)
 library(lmtest)
+library(lme4)
 ```
 
 
 Download Replication Data (Sorensen, 2019)
 ```{r}
+library(tidyverse)
+
 turnout_data<- dataverse::get_dataframe_by_name(
   filename = 'AggregateReplicationTVData.dta',
   .f = haven::read_dta,
@@ -39,6 +42,7 @@ turnout_data<-turnout_data|>
 Baseline Model
 ```{r}
 model0<-lm(turnout ~ TVdummy + logpop + education + settlement + voterpct, data=turnout_data)
+summary(model0)
 ```
 
 Question #1
@@ -55,23 +59,136 @@ model0_robust <- coeftest(model0,
                           type='HC2',
                           cluster = ~CountyId
                           )
-model0_robust
 
 # Fixed Effects
 model0_fixed <-feols(turnout ~ TVdummy + logpop + education + 
-                       settlement + voterpct | CountyId, data=turnout_data)
-model0_fixed
+                       settlement + voterpct | CountyId,
+                     data=turnout_data)
+
+(model0_fixed)
 
 # Random Effects
+model0_random <- lmer(turnout ~ TVdummy + logpop + education + 
+                       settlement + voterpct + (1| CountyId),
+                     data=turnout_data)
+summary(model0_random)
 ```
 
 Include your output in a formatted regression table and briefly discuss the differences between your results.
 ```{r}
-huxreg(model0, model0_robust, model0_fixed )
+library(modelsummary)
+model_list<-list("Original" = model0, "Robust SE" = model0_robust, 
+                 "Fixed Effects" = model0_fixed,
+                 "Random Effects" = model0_random)
+modelsummary(model_list, output = "huxtable")
 ```
+Differences between the results
+
+Model One: Cluster Robust SE
+
+Highest AIC: -327.5
+Highest BIC: 1517.4
+
+The model with cluster robust standard errors does not change the value of our
+estimates. However, it impacts the statistical significance of our predictors.
+For example, education in the model with cluster robust SE's is no longer 
+significant as it was in the original model. Following this pattern, the level 
+of signifiance for the rest of our predictors are also decreased here. Compared
+to the original model, our AIC is decreased while our BIC is increased. Compared
+to the other models, the cluster model has the overall highest AIC and BIC. 
+
+
+
+Model Two: Fixed Effects
+
+Lowest AIC: -1367.5
+Lowest BIC: -1268.7
+
+RMSE: 0.050902 
+Adj. R2: 0.543073
+Within R2: 0.155053
+R2 Within Adj: 0.145
+RMSE:0.05
+
+The model of fixed effects has a varied effect on our estimates. We see here
+that in this model, the only predictor that remains significant is settlement.
+Compared to the original model we have a greater R2 and Adjusted R2, which 
+means the model is able to explain a larger percentage of the variation. 
+Additionally, in comparison with the original model, we see that this model
+has a lower AIC and BIC, and is the lowest among all model versions. Lastly, it
+has a lower RMSE than the original model, indicating that it is a more 
+accurate model. Overall,this model controls for county and we see that this 
+model explains about 15% of the within variation, allowing us to see a more
+accurate model. 
+
+
+Model Three: Random Effects
+
+Middle Range BIC and AIC; -1242.7 and -1275.7
+CountyId (Intercept): 0.04267 
+Residual: 0.05230
+
+R2 Marg: 0.138           
+R2 Cond: 0.482 
+RMSE:0.05
+
+The model of random effects has a varied effect on our estimates, simillar to
+the fixed effects. As expected, we see that the estimates are pulled up or down
+according to their value towards the global mean. Compared to the original model
+the BIC and AIC of the random effects model are both lower, but are in the 
+middle compared to the the rest of the models. Similar to the fixed effects 
+model, the RMSE is also lower, indicating more precision compared to the 
+original model. This model also shows us that the fixed effects only explain 
+about 14% of the variance compared to the fixed+random which explains almost
+50%. When we directly analyze the random effects, we see that the variance
+for CountyID is 0.002 while that of the residual is 0.003. This indicates to 
+us that there isn't much variance across CountyID. When we assess the standard
+deviation, we see that the standard deviation of the residual is greater than
+that of CountyId, meaning it is not more predictive.
+
+
+
 
 Question #2
 
-Which of the models above seems like a better approach for this analysis? Briefly discuss some pros and cons for each one.
+Which of the models above seems like a better approach for this analysis? 
+Briefly discuss some pros and cons for each one.
+
+*Best Approach: Fixed Effects Model*
+
+The fixed effects model is the better appraoch as we have many pros. 
+For example, it has both a lower BIC and AIC overall, indicating that there
+is a better fit. Additionally, it has a greater R2 and adjusted R2, which
+means that this model is able to explain more of the variance compared to
+the original model or any other one. Lastly, it has a greater RMSE than the
+original model, indicating that it is more accurate. 
+
+The main con is that the fixed effects alone only explains about 10-15% of the
+within variation, meaning that random effects may have an important impact on
+our results.
+
+
+
+Pros and Cons of Model One: Cluster Robust SE
+
+Pros: It keeps the large values of our estimates that were in the original
+model and their significance except for education. Additionally, it seems
+to pull our estimates towards the mean, which helps us standardize our results.
+
+Cons: Highest AIC and BIC which means it has the worst model fit across the
+board.
+
+
+Pros and Cons of Model Three: Random Effects
+
+Pros: The AIC and BIC are lower than the original model but not the lowest out 
+of all models. Allows us to see the the fixed and random effects between and
+within the CountyId, which provides more information and context.
+
+Cons: It pulls the estimate values towards the global mean, which is useful
+but our data is not so small that it benefits greatly from this. When we assess
+the standard deviation, we see that the standard deviation of the residual is 
+greater than that of CountyId, meaning it is not more predictive model overall.
+
 
 
