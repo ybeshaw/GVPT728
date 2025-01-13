@@ -1,0 +1,41 @@
+---
+title: "GVPT728 HW#4"
+author: "Yael Beshaw"
+date: "2025-01-10"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Download Data of Interest
+```{r}
+library(tidyverse)
+socpoc <- dataverse::get_dataframe_by_name(
+  filename = "socpocAPSR.csv",
+  .f=read_csv,
+  dataset = "10.7910/DVN/CRPAA8&version=1.0", 
+  server = "dataverse.harvard.edu")|>
+  select(-1)
+```
+
+# Question 1
+Estimate the following bivariate model using a linear probability model and a logit or probit model.
+```{r}
+
+```
+What is the estimated effect of home-ownership on the probability that a respondent supports reduced restrictions on building new housing in this model? (state your answer in terms of the difference in % probability). Note any differences between your three models.
+
+# Question 2
+Estimate a linear probability and logit/probit model with the same dependent variable, but include additional controls for ideology, white (non-hispanic) and income:
+```{r}
+
+```
+
+## Question 2a
+What is the marginal effect of homeownership for a non-white “Extremely Conservative” respondent whose household income is less than $5,000 per year? Compare and contrast the estimates from the linear probability model and the logit/probit model.
+
+## Question 2b
+Finally, estimate the average effect of homeownership across all observations using the observed values/counterfactual approach. Note any differences in your results.
+
