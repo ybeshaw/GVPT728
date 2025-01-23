@@ -1,0 +1,890 @@
+---
+title: "GVPT728 Project Final Code"
+author: "Yael Beshaw"
+date: "2025-01-23"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Download Potentially Necessary Packages
+```{r, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(tidycensus)
+library(dplyr)
+library(readr)
+library(readxl)
+library(haven)
+library(ggfortify)
+library(car)
+library(huxtable)
+library(lmtest)
+library(ggdist)
+library(fixest)
+library(sandwich)
+library(lmtest)
+library(lme4)
+library(modelsummary)
+library(tableone)
+library(knitr)
+library(gt)
+library(marginaleffects)
+library(ggeffects)
+library(labelled)
+library(kableExtra)
+```
+
+# Import Original Dataset
+```{r}
+hints6 <- read_sav("/Users/yaelbeshaw/R Scripts and Projects/NYU-APSTA-GE-2011/HINTS6_SPSS/hints6_public.sav")
+```
+
+# Variables of Interest for this Study
+
+## Dependent Variable
+
+*Health Information-Seeking Behaviors:*
+
+Electronic2_HealthInfo: "In the past 12 months, have you used the Internet to 
+look for health or medical information?" (Binary)
+
+## Independent Variable
+
+*Frequency of Internet Usage:*
+
+SocMed_Visited: Frequency of visiting social media sites in the past
+12 months (ordinal or categorical).
+
+
+## Controls
+
+*Internet Access*
+
+Type of internet access
+
+1. Internet_DialUp
+2. Internet_HighSpeed
+3. Internet_Cell
+
+
+*Device ownership or access*
+
+HAVEDEVICE_CAT
+
+*Access Satisfaction*
+
+InternetConnection: Satisfaction with internet connection for health-related 
+needs (ordinal scale).
+
+
+*Health Literacy:*
+
+ConfidentInternetHealth: "How confident are you that you can find helpful 
+health resources on the Internet?" (Ordinal scale)
+
+
+*Trust in Information:*
+
+MisleadingHealthInfo: "How much of the health information that you see on social
+media do you think is false or misleading?" (Ordinal scale)
+
+
+*Health Status:*
+
+EverHadCancer
+
+MedConditions_Diabetes, MedConditions_HighBP, MedConditions_HeartCondition, 
+MedConditions_LungDisease, MedConditions_Depression
+
+
+*Demographics:*
+
+Age; Age and AgeGrpB
+
+Gender; BirthGender
+
+Race; RaceEthn5
+
+Educational attainment; EducA
+
+Geographic: CENSDIV
+
+Urban vs Rural; PR_RUCA_2010: USDA 2010 Primary Rural-Urban Community Area Code
+
+
+*Economic Factors:* 
+
+Income; HHInc
+
+Employment: WorkFullTime(R4)
+
+How many children: ChildrenInHH
+
+*Stratum Classification*
+
+STRATUM
+
+HR High minority rural area 
+HU High minority urban area
+LR Low minority rural area
+LU Low minority urban area
+
+*Household ID*
+
+HHID
+
+
+# Select Variables
+
+```{r}
+select_data <- hints6 |>
+  select(Electronic2_HealthInfo, #binary 1 or 2 *done
+         UseInternet, #binary 1 or 2 *done
+         SocMed_Visited, # 1 to 5 (every day to never) --flip *done
+         Internet_DialUp, # binary 1 or 2 *done
+         Internet_HighSpeed, # binary 1 or 2 *done
+         Internet_Cell, # binary 1 or 2 *done
+         HAVEDEVICE_CAT, #recode 4 as 0 *done
+         InternetConnection, # 1 to 5 (extremely satisfied to not at all) -flip *done
+         ConfidentInternetHealth, #1 to 5 (completely confident to not at all) -flip *done
+         MisleadingHealthInfo, #1 to 5 (a lot to none (4), I dont use social (5)) -flip with 1 =0 *done
+         EverHadCancer, #dummy- healthstatus *done
+         MedConditions_Diabetes, #dummy - healthstatus *done
+         MedConditions_HighBP, #dummy- healthstatus *done
+         MedConditions_HeartCondition, #dummy - healthstatus *done
+         MedConditions_LungDisease, #dummy- healthstatus *done
+         MedConditions_Depression, #dummy- healthstatus *done
+         Age, #continuous (18 to 99) use AgeGrpB for visualization *done
+         BirthGender, # 0 == Male, 1 == Female *done
+         RaceEthn5, # NHWhite, NHBlack, Hispanic, NHAsian, NHOther *done
+         EducA, # Less than HS, HS, Some College, Collge and Beyond *done
+         CENSDIV, # New England, Middle Atlantic, E/W North Central, South Atlantic, E/W South Central, Mountain, Pacific *done
+         PR_RUCA_2010, # Metropolitan, Micropolitian, Small Town, Rural (code 0 or 1) *done
+         HHInc, # 1 to 5, increasing *done
+         WorkFullTime, # 1 or 2 0,1 *done
+         ChildrenInHH, # 0 to 9 *done
+         AgeGrpB,
+         HHID)
+```
+
+# Data Preprocessing
+
+Remove any missing data
+```{r}
+clean_data <- select_data %>%
+  mutate(across(everything(), ~ na_if(., -9))) %>%
+  mutate(across(everything(), ~ na_if(., -7))) %>%
+  mutate(across(everything(), ~ na_if(., -6))) %>%
+  mutate(across(everything(), ~ na_if(., -5))) %>%
+  mutate(across(everything(), ~ na_if(., -4))) %>%
+  mutate(across(everything(), ~ na_if(., -2)))
+
+
+data <- na.omit(clean_data)
+```
+
+# Join the new dataset with the stratum assignment using HHID, use later
+
+```{r}
+stratum <- hints6 |>
+  select(HHID,
+         STRATUM)
+
+data <- inner_join(data, stratum, by = "HHID")
+```
+
+
+# Recodes
+
+```{r}
+
+#For Binary Variables- Code 1's and 2's to 0 and 1
+
+#DV
+data$Electronic2_HealthInfo <- ifelse(data$Electronic2_HealthInfo == 1,
+                                      1, 0)
+# Type of Internet
+data$Internet_DialUp <- ifelse(data$Internet_DialUp == 1,
+                                      1, 0)
+data$Internet_HighSpeed <- ifelse(data$Internet_HighSpeed == 1,
+                                      1, 0)
+data$Internet_Cell <- ifelse(data$Internet_Cell == 1,
+                                      1, 0)
+
+#Gender
+data$BirthGender <- ifelse(data$BirthGender == 1,
+                                      1, 0)
+
+#Employment
+data$WorkFullTime<- ifelse(data$WorkFullTime == 1,
+                                      1, 0)
+
+
+# Flip the ordinal variables from least to greatest
+
+#Fr(SM)
+data$SocMed_Visited <- factor(data$SocMed_Visited, 
+                                 levels = c(5, 4, 3, 2, 1))
+levels(data$SocMed_Visited) <- c("1", "2", "3", "4", "5")
+
+
+# Internet Connection Satisfaction
+data$InternetConnection <- factor(data$InternetConnection, 
+                                 levels = c(5, 4, 3, 2, 1))
+levels(data$InternetConnection) <- c("1", "2", "3", "4", "5")
+
+
+# Confidence in Getting Health Info (Literacy)
+data$ConfidentInternetHealth <- factor(data$ConfidentInternetHealth, 
+                                 levels = c(5, 4, 3, 2, 1))
+levels(data$ConfidentInternetHealth) <- c("1", "2", "3", "4", "5")
+
+
+# Trust in Health Info on SM
+data$MisleadingHealthInfo <- factor(data$MisleadingHealthInfo, 
+                                 levels = c(5, 4, 3, 2, 1))
+levels(data$MisleadingHealthInfo) <- c("1", "2", "3", "4", "5")
+
+
+#Recode Variables
+
+# Rural vs Not
+data$PR_RUCA_2010 <- ifelse(data$PR_RUCA_2010== 1 |
+                              data$PR_RUCA_2010== 4|
+                              data$PR_RUCA_2010== 7,
+                            0,
+                            1)
+
+# Any chronic conditions + cancer as a 1 or 0
+data$HealthStatus <- ifelse(data$EverHadCancer == 1 | 
+                                data$MedConditions_Diabetes == 1 | 
+                                data$MedConditions_HighBP == 1 | 
+                                data$MedConditions_HeartCondition == 1 | 
+                                data$MedConditions_LungDisease == 1 | 
+                                data$MedConditions_Depression == 1, 
+                                1, 
+                                0)
+
+# Devices, none is 0 and multiple is 4 instead
+data$HAVEDEVICE_CAT <- ifelse(data$HAVEDEVICE_CAT == 4, 0, 
+                                  ifelse(data$HAVEDEVICE_CAT == 5, 4, 
+                                         data$HAVEDEVICE_CAT))
+
+
+# Turn internet type into one variable
+data$InternetAccessType <- NA
+
+# Assign any combinations as 4 = Multiple
+data$InternetAccessType[data$Internet_DialUp == 1 & 
+                         data$Internet_HighSpeed == 1] <- 4
+
+data$InternetAccessType[data$Internet_DialUp == 1 & 
+                         data$Internet_Cell == 1] <- 4
+
+data$InternetAccessType[data$Internet_HighSpeed == 1 & 
+                         data$Internet_Cell == 1] <- 4
+
+# Assign individual categories as their own
+data$InternetAccessType[data$Internet_DialUp == 1 & 
+                         is.na(data$InternetAccessType)] <- 1
+
+data$InternetAccessType[data$Internet_HighSpeed == 1 & 
+                         is.na(data$InternetAccessType)] <- 2
+
+data$InternetAccessType[data$Internet_Cell == 1 & 
+                         is.na(data$InternetAccessType)] <- 3
+
+
+# Recode the number of children, 0 = None up to 3+
+
+data$ChildrenInHH_recode <- ifelse(data$ChildrenInHH >= 3, 3, as.character(data$ChildrenInHH))
+```
+
+# Descriptive Statisitics Visualizations
+
+## Dependent VAR
+
+```{r}
+#DEPENDENT VARIABLE
+
+freq_table <- table(data$Electronic2_HealthInfo)
+
+pie(freq_table, 
+    main = "In the Past 12 months, \n have you used the Internet to look for \n health or medical information?", 
+    col = c("lightblue", "lightgreen"),
+    labels = paste(names(freq_table), "\n", freq_table))
+```
+Compare the results against how many people use the internet in general
+```{r}
+freq_table <- table(data$ UseInternet)
+
+pie(freq_table, 
+    main = "Do you ever go on-line to access the Internet \n or World Wide Web,\n or to send and receive e-mail?", 
+    col = c("lightblue", "lightgreen"), 
+    labels = paste(names(freq_table), "\n", freq_table)) 
+```
+
+## Independent VAR
+
+```{r}
+freq_table <- table(data$SocMed_Visited)
+
+x_labels <- c("Never \n n=822", "Rarely \n n=279", "Occasionally \n n=366", "Frequently \n n= 589", "Every Day \n n=2735") 
+
+# Create the barplot
+barplot(freq_table, 
+        main = "In the last 12 months, \n how often did you visit a \n social media site?", 
+        xlab = "Social Media Usage Frequency", 
+        ylab = "Count", 
+        col = "lightblue", 
+        border = "white", 
+        las = 1,  
+        ylim = c(0, max(freq_table) + 5),
+        names.arg = x_labels) 
+```
+
+## Health Information Related Controls
+
+```{r}
+
+#internet type
+freq_table <- table(data$InternetAccessType)
+
+names(freq_table) <- c("Dial-Up", "High-Speed", "Cellular", "Multiple")
+
+category_count_table <- data.frame(
+  Category = names(freq_table),
+  Count = as.vector(freq_table)
+)
+
+kable(category_count_table, 
+      caption = "Access Type")
+
+
+#device type
+freq_table <- table(data$HAVEDEVICE_CAT)
+
+names(freq_table) <- c("Tablet Computer Only", "Smartphone Only", "Basic Cell Only",
+                       "None", "Multiple Devices")
+
+category_count_table <- data.frame(
+  Category = names(freq_table),
+  Count = as.vector(freq_table)
+)
+
+kable(category_count_table, 
+      caption = "Device Type")
+
+
+#health literacy
+
+freq_table <- table(data$ConfidentInternetHealth)
+
+x_labels <- c("Not at All \n n=206", "A Little \n n=413", "Somewhat \n n=1888", "Very \n n=1692", "Completely \n n=592") 
+
+# Create the barplot
+barplot(freq_table, 
+        main = "How confident are you that you can find helpful \n health resources on the Internet?", 
+        xlab = "Confidence", 
+        ylab = "Count", 
+        col = "lightgreen", 
+        border = "white", 
+        las = 1, 
+        ylim = c(0, max(freq_table) + 5),  
+        names.arg = x_labels)  
+
+#trust in health information on social media
+
+freq_table <- table(data$MisleadingHealthInfo)
+
+x_labels <- c("No Social Media \n n=787", "None \n n=54", "A Little \n n=689", "Some \n n=1818", "A Lot \n n=1443") 
+
+barplot(freq_table, 
+        main = "How much of the health information that you see on social media \n do you think is false or misleading?", 
+        xlab = "Trust in Health Information", 
+        ylab = "Count", 
+        col = "lightblue", 
+        border = "white", 
+        las = 1,  
+        ylim = c(0, max(freq_table) + 5), 
+        names.arg = x_labels) 
+```
+
+# Demographic Controls
+
+```{r}
+#DEMOGRAPHIC CONTROLS
+
+# Health Status
+freq_table <- table(data$HealthStatus)
+
+pie(freq_table, 
+    main = "Have you ever had Cancer or another Chronic Condition? \n (i.e., Diabetes, High BP, Heart Condition, Lung Disease, Depression)", 
+    col = c("lightblue", "lightgreen"),
+    labels = paste(names(freq_table), "\n", freq_table))
+
+# Age
+median(data$Age)
+
+freq_table <- table(data$AgeGrpB)
+
+x_labels <- c("18-34 \n n=782", "35-49 \n n=1048", "50-64 \n n=1408", "65-74 \n n=1015", "75+ \n n=538") 
+
+barplot(freq_table, 
+        main = "Age Groups of Respondents", 
+        xlab = "Age", 
+        ylab = "Count", 
+        col = "lightblue", 
+        border = "white", 
+        las = 1,  
+        ylim = c(0, max(freq_table) + 5),  
+        names.arg = x_labels) 
+
+# SEX at BIRTH
+freq_table <- table(data$BirthGender)
+
+pie(freq_table, 
+    main = "Sex/Gender Assigned at Birth", 
+    col = c("lightblue", "lightpink"),
+    labels = paste(names(freq_table), "\n", freq_table),
+    radius = 1, 
+    cex = 1.2,  
+    clockwise = TRUE,  
+    border = "black",  
+    init.angle = 90  
+)
+
+# Race
+freq_table <- table(data$RaceEthn5)
+
+names(freq_table) <- c("NHWHite", "NHBlack", "Hispanic",
+                       "NHAsian", "NHOthers")
+
+category_count_table <- data.frame(
+  Category = names(freq_table),
+  Count = as.vector(freq_table)
+)
+
+kable(category_count_table, 
+      caption = "Race")
+
+
+# Education
+freq_table <- table(data$EducA)
+
+names(freq_table) <- c("< High School", "High School Grad", "Some College",
+                       "College Grad +")
+
+category_count_table <- data.frame(
+  Category = names(freq_table),
+  Count = as.vector(freq_table)
+)
+
+kable(category_count_table, 
+      caption = "Education")
+
+
+# Rural vs Not
+freq_table <- table(data$PR_RUCA_2010)
+
+pie(freq_table, 
+    main = "Rural vs Not", 
+    col = c("lightblue", "lightgreen"),
+    labels = paste(names(freq_table), "\n", freq_table),
+    radius = 1,  
+    cex = 1.2,  
+    clockwise = TRUE,  
+    border = "black",  
+    init.angle = 180  
+)
+
+# How many Children Under 18
+
+freq_table <- table(data$ChildrenInHH_recode)
+
+x_labels <- c("0 Children \n n=3602", "1 Child \n n=576", "2 Children \n n=383", "3+ Children \n n=230") 
+
+# Create the barplot
+barplot(freq_table, 
+        main = "# of Children Under 18", 
+        xlab = "Ranges", 
+        ylab = "Count", 
+        col = "lightblue", 
+        border = "white", 
+        las = 1,  
+        ylim = c(0, max(freq_table) + 5),  
+        names.arg = x_labels) 
+```
+
+# Economic Controls
+
+```{r}
+
+#HHInc 
+
+freq_table <- table(data$HHInc)
+
+x_labels <- c("< $20k \n n=708", "$20k-$35k \n n=601", "$35k-$50k \n n=627", "$50k-$75k \n n=835", "$75K+ \n n=2020") 
+
+# Create the barplot
+barplot(freq_table, 
+        main = "Combined Houshold Income Ranges", 
+        xlab = "Ranges", 
+        ylab = "Count", 
+        col = "lightgreen", 
+        border = "white", 
+        las = 1,  
+        ylim = c(0, max(freq_table) + 5), 
+        names.arg = x_labels)  
+
+
+#Full Time Work
+freq_table <- table(data$WorkFullTime)
+
+pie(freq_table, 
+    main = "Do you work full time?", 
+    col = c("lightblue", "lightgreen"),
+    labels = paste(names(freq_table), "\n", freq_table),
+    radius = 1, 
+    cex = 1.2,  
+    clockwise = TRUE,  
+    border = "black",  
+    init.angle = 90  
+)
+   
+```
+
+## Stratification Assignment
+```{r}
+#Stratum Classification
+
+freq_table <- table(data$STRATUM)
+
+pie(freq_table, 
+    main = "STRATUM ASSIGNMENT", 
+    col = c("lightblue", "lightgreen", "lightpink", "lightyellow"),
+    labels = paste(names(freq_table), "\n", freq_table),
+    radius = 1, 
+    cex = 0.75,  
+    clockwise = TRUE,  
+    border = "black",  
+    init.angle = 270
+)
+```
+
+# More Recoding for Data Analysis
+```{r}
+#ACCESS TYPE
+table(data$InternetAccessType)
+data$InternetAccessType_dummy <- ifelse(data$InternetAccessType == 4, 1, 0)
+table(data$InternetAccessType_dummy)
+
+
+# DEVICE
+table(data$HAVEDEVICE_CAT)
+data$HAVEDEVICE_CAT_recode <- ifelse(data$HAVEDEVICE_CAT == 3, 0,
+                                     ifelse(data$HAVEDEVICE_CAT == 4, 2, 1))
+table(data$HAVEDEVICE_CAT_recode)
+
+#VISTIED
+table(data$SocMed_Visited)
+data$SocMed_Visited <- as.numeric(data$SocMed_Visited)
+
+#CONFIDENCE
+table(data$ConfidentInternetHealth)
+data$ConfidentInternetHealth <- as.numeric(data$ConfidentInternetHealth)
+
+#RACE
+table(data$RaceEthn5)
+data$RaceEthn5_recoded <- factor(data$RaceEthn5, 
+                         levels = c(1, 2, 3, 4, 5),
+                         label = c("NHWhite", "NHBlack", "Hispanic", "NHAsian", "NHOther"))
+
+# Check the table after factoring
+table(data$RaceEthn5_recoded)
+
+#EDUCATION
+table(data$EducA)
+data$EducA_recoded <- factor(data$EducA, 
+                         levels = c(1, 2, 3, 4),
+                         label = c("< High School", "HS Grad", "Some College", "College Grad +"))
+
+# Check the table after factoring
+table(data$EducA_recoded)
+
+#CHILDREN
+data$ChildrenInHH_recode <- as.numeric(data$ChildrenInHH_recode)
+```
+
+
+
+# LOGIT REGRESSIONS
+```{r}
+# Logistic Regression Models
+
+## Model 1: Frequency of internet usage as a predictor
+model1 <- glm(Electronic2_HealthInfo ~ SocMed_Visited , family = binomial, data = data)
+summary(model1)
+
+
+## Model 2: Alongside Controls
+model2 <- glm(Electronic2_HealthInfo ~ SocMed_Visited +
+                InternetAccessType_dummy + HAVEDEVICE_CAT_recode + ConfidentInternetHealth + 
+                MisleadingHealthInfo, family = binomial, data = data)
+summary(model2)
+
+
+## Model 3: Adding demographic factors
+model3 <- glm(Electronic2_HealthInfo ~ SocMed_Visited +
+                InternetAccessType_dummy + HAVEDEVICE_CAT_recode + ConfidentInternetHealth + 
+                MisleadingHealthInfo +
+                HealthStatus+ Age+ BirthGender+ RaceEthn5_recoded+ EducA_recoded + PR_RUCA_2010 +
+                ChildrenInHH_recode, family = binomial, data = data)
+summary(model3)
+
+## Model 4: Adding demographic and economic factors
+model4 <- glm(Electronic2_HealthInfo ~ SocMed_Visited +
+                InternetAccessType_dummy + HAVEDEVICE_CAT_recode + ConfidentInternetHealth + 
+                MisleadingHealthInfo +
+                HealthStatus+ Age+ BirthGender+ RaceEthn5_recoded+ EducA_recoded + PR_RUCA_2010 +
+                ChildrenInHH_recode + HHInc + WorkFullTime, family = binomial, data = data)
+summary(model4)
+```
+# SUMMARY OF MODEL $
+```{r}
+model_sum <- list("Model 4" = model4)
+modelsummary(model_sum, output = "huxtable")
+```
+
+# SUMMARY OF ALL MODELS
+```{r}
+model_list<-list("Baseline" = model1, "Health Related Controls" = model2, 
+                 "Add Demographics" = model3,
+                 "Add Economics" = model4)
+modelsummary(model_list, output = "huxtable")
+```
+# GLOBAL F TEST
+
+```{r}
+anova(model3, model4)
+```
+
+
+# MARGINAL EFFECTS
+
+## AVERAGE PREDICTIONS
+```{r}
+predicitions <- avg_predictions(model4, variables='SocMed_Visited')|>
+  tibble()
+
+predicitions
+```
+
+```{r}
+#put in presentable table
+
+predictions <- avg_predictions(model4, variables = 'SocMed_Visited') |>
+  tibble()
+
+predictions$SocMed_Visited <- c("Never", "Rarely", "Occasionally", "Frequently", "Every Day")
+
+# Create and display the table with custom row names
+predictions |>
+  gt() |>
+  tab_header(
+    title = "Average Predicted Probabilities for SocMed_Visited",
+    subtitle = "Based on Logistic Regression Model"
+  ) |>
+  fmt_number(
+    columns = everything(),
+    decimals = 3
+  ) |>
+  cols_label(
+    SocMed_Visited = "Social Media Usage",
+    estimate = "Estimate",
+    std.error = "Std. Error",
+    statistic = "Statistic",
+    p.value = "P-value",
+    s.value = "S-value",
+    conf.low = "Conf. Low",
+    conf.high = "Conf. High"
+  )
+
+```
+
+## COUNTERFACTUAL APPROACH
+
+```{r}
+mfx <- avg_comparisons(model4) |> 
+  tidy() |> 
+  mutate(contrast = paste(term, ":", contrast))
+
+mfx_significant <- mfx |> 
+  filter(p.value < 0.05)
+
+ggplot(mfx_significant, aes(x = estimate, y = contrast, color= "Model 4",
+                xmin = conf.low, 
+                xmax = conf.high)) + 
+  geom_pointrange(position = position_dodge(width = 0.5)) + 
+  theme_bw() + 
+  xlim(c(-0.5, 0.5)) + 
+  geom_vline(xintercept = 0, lty = 2) + 
+  scale_color_brewer(palette = "Dark2") + 
+  labs(
+    title = "Marginal Effects of Significant Coefficients",
+    caption = "Averaged over observed values"
+  ) + 
+  theme(
+    axis.title.y = element_blank(),
+    axis.text.y = element_text(size = 10)
+  )
+```
+
+
+# CHECK THE MARGINAL EFFECTS
+```{r}
+
+#HIGH SM USAGE
+logit_effect1 <-predict(model4, 
+                         newdata=data.frame(
+                           SocMed_Visited = 5,
+                           InternetAccessType_dummy = 1,
+                           HAVEDEVICE_CAT_recode = 2,
+                           ConfidentInternetHealth =5,
+                           MisleadingHealthInfo = "5",
+                           HealthStatus = 1,
+                           BirthGender= 0,
+                           RaceEthn5_recoded = "NHWhite",
+                           EducA_recoded = "College Grad +",
+                           PR_RUCA_2010 = 1,
+                           HHInc = 5,
+                           Age = 56,
+                           WorkFullTime= 1,
+                           ChildrenInHH_recode = 0),
+                           type='response')
+
+
+logit_effect2 <-predict(model4, 
+                         newdata=data.frame(
+                           SocMed_Visited = 5,
+                           InternetAccessType_dummy = 0,
+                           HAVEDEVICE_CAT_recode = 0,
+                           ConfidentInternetHealth =1,
+                           MisleadingHealthInfo = "1",
+                           HealthStatus = 0,
+                           BirthGender= 1,
+                           RaceEthn5_recoded = "NHBlack",
+                           EducA_recoded = "< High School",
+                           PR_RUCA_2010 = 0,
+                           HHInc = 1,
+                           Age = 56,
+                           WorkFullTime= 1,
+                           ChildrenInHH_recode = 0),
+                           type='response')
+
+logit_effect1- logit_effect2 
+
+
+
+# LOW SM USAGE
+logit_effect3 <-predict(model4, 
+                         newdata=data.frame(
+                           SocMed_Visited = 1,
+                           InternetAccessType_dummy = 1,
+                           HAVEDEVICE_CAT_recode = 2,
+                           ConfidentInternetHealth =5,
+                           MisleadingHealthInfo = "5",
+                           HealthStatus = 1,
+                           BirthGender= 0,
+                           RaceEthn5_recoded = "NHWhite",
+                           EducA_recoded = "College Grad +",
+                           PR_RUCA_2010 = 1,
+                           HHInc = 5,
+                           Age = 56,
+                           WorkFullTime= 1,
+                           ChildrenInHH_recode = 0),
+                           type='response')
+
+
+logit_effect4 <-predict(model4, 
+                         newdata=data.frame(
+                           SocMed_Visited = 1,
+                           InternetAccessType_dummy = 0,
+                           HAVEDEVICE_CAT_recode = 0,
+                           ConfidentInternetHealth =1,
+                           MisleadingHealthInfo = "1",
+                           HealthStatus = 0,
+                           BirthGender= 1,
+                           RaceEthn5_recoded = "NHBlack",
+                           EducA_recoded = "< High School",
+                           PR_RUCA_2010 = 0,
+                           HHInc = 1,
+                           Age = 56,
+                           WorkFullTime= 1,
+                           ChildrenInHH_recode = 0),
+                           type='response')
+
+logit_effect3- logit_effect4 
+```
+
+
+# DIAGNOSTICS AND ROBUSTNESS CHECKS
+
+Muliti-colinearity 
+```{r}
+vif(model4)
+```
+Autoplot
+```{r}
+autoplot(model4)
+```
+
+Robust Standard Errors
+```{r}
+robust_se <- sqrt(diag(vcovHC(model4, type = "HC0")))
+coefficients <- coef(model4)  # Get model coefficients
+z_stats <- coefficients / robust_se
+conf_int_low <- coefficients - 1.96 * robust_se
+conf_int_high <- coefficients + 1.96 * robust_se
+
+results_table <- data.frame(
+  Variable = names(coefficients),
+  Coefficient = coefficients,
+  Robust_SE = robust_se,
+  Z_Statistic = z_stats,
+  Conf_Low = conf_int_low,
+  Conf_High = conf_int_high
+)
+
+
+# Create the table and format it
+results_table %>%
+  gt() %>%
+  tab_header(
+    title = "Robust Standard Errors and Model Statistics"
+  ) %>%
+  cols_label(
+    Variable = "Coefficient",
+    Coefficient = "Estimate",
+    Robust_SE = "Robust SE",
+    Z_Statistic = "Z-Statistic",
+    Conf_Low = "95% Conf. Low",
+    Conf_High = "95% Conf. High"
+  ) %>%
+  fmt_number(
+    columns = vars(Coefficient, Robust_SE, Z_Statistic, Conf_Low, Conf_High),
+    decimals = 3
+  )
+
+
+
+```
+
+
+
+
+
